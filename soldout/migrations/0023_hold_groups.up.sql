@@ -1,4 +1,4 @@
--- 0022: группа соседних мест (V3). Владелец — booking.
+-- 0023: группа соседних мест (V3). Владелец — booking. 0022 на main уже занят catalog_seat_state_hold.
 -- event_id и sector_id без FK: это идентификаторы catalog (конституция, раздел 5).
 
 CREATE TABLE hold_groups (

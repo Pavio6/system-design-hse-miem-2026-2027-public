@@ -17,7 +17,7 @@
 
 | Что | Где |
 |---|---|
-| Миграция | `soldout/migrations/0022_hold_groups.up.sql`, `.down.sql` |
+| Миграция | `soldout/migrations/0023_hold_groups.up.sql`, `.down.sql` |
 | Домен и сценарий | `soldout/internal/booking/domain/adjacent.go`, `soldout/internal/booking/app/adjacent.go` |
 | Хранение | `soldout/internal/booking/adapters/pg/store.go` |
 | HTTP | `soldout/internal/booking/adapters/http/handlers.go` |
