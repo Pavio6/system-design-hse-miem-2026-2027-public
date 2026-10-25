@@ -19,6 +19,7 @@ type Hold struct {
 	Status    api.HoldStatus
 	ExpiresAt time.Time
 	CreatedAt time.Time
+	GroupID   uuid.UUID // uuid.Nil у одиночного hold
 }
 
 // NewHold создаёт активный hold на ttl.
@@ -61,5 +62,10 @@ func CanHoldMore(current int) bool { return current < api.MaxTicketsPerUser }
 
 // ToAPI — DTO.
 func (h Hold) ToAPI() api.Hold {
-	return api.Hold{ID: h.ID, EventID: h.EventID, SeatID: h.SeatID, UserID: h.UserID, Status: h.Status, ExpiresAt: h.ExpiresAt, CreatedAt: h.CreatedAt}
+	out := api.Hold{ID: h.ID, EventID: h.EventID, SeatID: h.SeatID, UserID: h.UserID, Status: h.Status, ExpiresAt: h.ExpiresAt, CreatedAt: h.CreatedAt}
+	if h.GroupID != uuid.Nil {
+		id := h.GroupID
+		out.GroupID = &id
+	}
+	return out
 }

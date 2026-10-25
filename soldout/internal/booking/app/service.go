@@ -25,9 +25,13 @@ import (
 // Tx — операции внутри транзакции.
 type Tx interface {
 	LockSeat(ctx context.Context, eventID uuid.UUID, seatID int64) error
+	TryLockSeat(ctx context.Context, eventID uuid.UUID, seatID int64) (bool, error)
+	LockUser(ctx context.Context, eventID, userID uuid.UUID) error
 	CountUserHolds(ctx context.Context, eventID, userID uuid.UUID) (int, error)
 	SeatSold(ctx context.Context, eventID uuid.UUID, seatID int64) (bool, error)
+	SeatTaken(ctx context.Context, eventID uuid.UUID, seatID int64) (bool, error)
 	InsertHold(ctx context.Context, h domain.Hold) error
+	InsertGroup(ctx context.Context, g domain.HoldGroup) error
 	GetHoldsForUpdate(ctx context.Context, ids []uuid.UUID) ([]domain.Hold, error)
 	UpdateHold(ctx context.Context, h domain.Hold) error
 	HoldsInOpenOrders(ctx context.Context, ids []uuid.UUID) (bool, error)
@@ -50,6 +54,9 @@ type Store interface {
 	ExpireHoldsBatch(ctx context.Context, now time.Time, limit int) ([]ReleasedHold, error)
 	ExpireOrders(ctx context.Context, now time.Time) (int64, error)
 	CountActiveHolds(ctx context.Context) (int64, error)
+	TakenSeatIDs(ctx context.Context, eventID uuid.UUID, seatIDs []int64) (map[int64]struct{}, error)
+	FindGroupByIdempotencyKey(ctx context.Context, key string) (domain.HoldGroup, error)
+	HoldsByGroup(ctx context.Context, groupID uuid.UUID) ([]domain.Hold, error)
 }
 
 // ReleasedHold — hold, освобождённый expirer'ом (для событий карты зала).

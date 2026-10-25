@@ -126,6 +126,29 @@ func (s *Service) GetSeat(ctx context.Context, seatID int64) (api.Seat, error) {
 	return seat.ToAPI(), nil
 }
 
+// GetSector — сектор по id.
+func (s *Service) GetSector(ctx context.Context, id uuid.UUID) (api.Sector, error) {
+	sec, err := s.repo.GetSector(ctx, id)
+	if err != nil {
+		return api.Sector{}, err
+	}
+	return sec.ToAPI(), nil
+}
+
+// SeatsBySector — геометрия одного сектора (около 1 000 мест). Занятость сюда не входит.
+// Места сектора не меняются во время дропа, поэтому читаем их один раз и держим в процессе.
+func (s *Service) SeatsBySector(ctx context.Context, sectorID uuid.UUID) ([]api.Seat, error) {
+	seats, err := s.sectorSeats(ctx, sectorID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]api.Seat, 0, len(seats))
+	for _, seat := range seats {
+		out = append(out, seat.ToAPI())
+	}
+	return out, nil
+}
+
 // SeatMap — сводка по секторам из проекции (один GROUP BY вместо 40 000 строк).
 func (s *Service) SeatMap(ctx context.Context, eventID uuid.UUID) (api.SeatMap, error) {
 	ev, err := s.repo.GetEvent(ctx, eventID)
