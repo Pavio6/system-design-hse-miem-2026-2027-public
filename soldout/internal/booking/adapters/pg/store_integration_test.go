@@ -181,6 +181,12 @@ func (f fakeCatalog) CreateEvent(context.Context, catalogapi.CreateEventInput) (
 func (f fakeCatalog) OpenSales(context.Context, uuid.UUID) (catalogapi.Event, error) {
 	return catalogapi.Event{}, nil
 }
+func (f fakeCatalog) GetSector(context.Context, uuid.UUID) (catalogapi.Sector, error) {
+	return catalogapi.Sector{}, catalogapi.ErrSectorNotFound
+}
+func (f fakeCatalog) SeatsBySector(context.Context, uuid.UUID) ([]catalogapi.Seat, error) {
+	return nil, nil
+}
 
 type fakeQueue struct{}
 

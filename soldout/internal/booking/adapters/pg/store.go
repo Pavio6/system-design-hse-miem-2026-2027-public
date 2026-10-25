@@ -69,6 +69,26 @@ func (q *queries) LockSeat(ctx context.Context, eventID uuid.UUID, seatID int64)
 	return nil
 }
 
+// TryLockSeat — неблокирующий advisory-lock. false значит, что место уже держит другая транзакция.
+func (q *queries) TryLockSeat(ctx context.Context, eventID uuid.UUID, seatID int64) (bool, error) {
+	var ok bool
+	err := q.db.QueryRow(ctx, "/* booking.try_lock_seat */ SELECT pg_try_advisory_xact_lock(hashtext($1::text), $2::int)", eventID, seatID).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("booking/pg: try lock seat: %w", err)
+	}
+	return ok, nil
+}
+
+// LockUser — advisory-lock на (event, user) до конца транзакции.
+// Пространство ключей одноаргументного lock не пересекается с LockSeat (два int4).
+func (q *queries) LockUser(ctx context.Context, eventID, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, "/* booking.lock_user */ SELECT pg_advisory_xact_lock(hashtext($1::text)::bigint)", "user:"+eventID.String()+":"+userID.String())
+	if err != nil {
+		return fmt.Errorf("booking/pg: lock user: %w", err)
+	}
+	return nil
+}
+
 // CountUserHolds — активные и подтверждённые hold пользователя на мероприятие (лимит FR-7).
 func (q *queries) CountUserHolds(ctx context.Context, eventID, userID uuid.UUID) (int, error) {
 	var n int
@@ -93,12 +113,28 @@ func (q *queries) SeatSold(ctx context.Context, eventID uuid.UUID, seatID int64)
 	return sold, nil
 }
 
+// SeatTaken — место уже в active или confirmed hold (индекс holds_taken_uidx).
+func (q *queries) SeatTaken(ctx context.Context, eventID uuid.UUID, seatID int64) (bool, error) {
+	var taken bool
+	err := q.db.QueryRow(ctx, `/* booking.seat_taken */
+		SELECT EXISTS (SELECT 1 FROM holds WHERE event_id = $1 AND seat_id = $2 AND status IN ('active', 'confirmed'))`,
+		eventID, seatID).Scan(&taken)
+	if err != nil {
+		return false, fmt.Errorf("booking/pg: seat taken: %w", err)
+	}
+	return taken, nil
+}
+
 // InsertHold — новый hold; нарушение uniq_active_hold / holds_taken_uidx → ErrSeatHeld.
 func (q *queries) InsertHold(ctx context.Context, h domain.Hold) error {
+	var groupID any
+	if h.GroupID != uuid.Nil {
+		groupID = h.GroupID
+	}
 	_, err := q.db.Exec(ctx, `/* booking.insert_hold */
-		INSERT INTO holds (id, event_id, seat_id, user_id, status, expires_at, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		h.ID, h.EventID, h.SeatID, h.UserID, h.Status, h.ExpiresAt, h.CreatedAt)
+		INSERT INTO holds (id, event_id, seat_id, user_id, status, expires_at, created_at, group_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		h.ID, h.EventID, h.SeatID, h.UserID, h.Status, h.ExpiresAt, h.CreatedAt, groupID)
 	if db.IsUniqueViolation(err, "") {
 		return api.ErrSeatHeld
 	}
@@ -108,11 +144,34 @@ func (q *queries) InsertHold(ctx context.Context, h domain.Hold) error {
 	return nil
 }
 
-const holdCols = "id, event_id, seat_id, user_id, status, expires_at, created_at"
+// InsertGroup — строка группы. Повтор idempotency_key → ErrIdempotencyConflict.
+func (q *queries) InsertGroup(ctx context.Context, g domain.HoldGroup) error {
+	var key any
+	if g.IdempotencyKey != "" {
+		key = g.IdempotencyKey
+	}
+	_, err := q.db.Exec(ctx, `/* booking.insert_group */
+		INSERT INTO hold_groups (id, event_id, user_id, sector_id, row_no, seat_from, seat_count, idempotency_key, expires_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		g.ID, g.EventID, g.UserID, g.SectorID, g.RowNo, g.SeatFrom, g.Count, key, g.ExpiresAt, g.CreatedAt)
+	if db.IsUniqueViolation(err, "hold_groups_idempotency_key_key") {
+		return api.ErrIdempotencyConflict
+	}
+	if err != nil {
+		return fmt.Errorf("booking/pg: insert group: %w", err)
+	}
+	return nil
+}
+
+const holdCols = "id, event_id, seat_id, user_id, status, expires_at, created_at, group_id"
 
 func scanHold(row pgx.Row) (domain.Hold, error) {
 	var h domain.Hold
-	err := row.Scan(&h.ID, &h.EventID, &h.SeatID, &h.UserID, &h.Status, &h.ExpiresAt, &h.CreatedAt)
+	var groupID *uuid.UUID
+	err := row.Scan(&h.ID, &h.EventID, &h.SeatID, &h.UserID, &h.Status, &h.ExpiresAt, &h.CreatedAt, &groupID)
+	if groupID != nil {
+		h.GroupID = *groupID
+	}
 	return h, err
 }
 
@@ -357,4 +416,65 @@ func (q *queries) CountActiveHolds(ctx context.Context) (int64, error) {
 		return 0, fmt.Errorf("booking/pg: count active holds: %w", err)
 	}
 	return n, nil
+}
+
+// TakenSeatIDs — какие из переданных мест уже заняты active или confirmed hold.
+func (q *queries) TakenSeatIDs(ctx context.Context, eventID uuid.UUID, seatIDs []int64) (map[int64]struct{}, error) {
+	out := make(map[int64]struct{})
+	if len(seatIDs) == 0 {
+		return out, nil
+	}
+	rows, err := q.db.Query(ctx, `/* booking.taken_seat_ids */
+		SELECT seat_id FROM holds
+		WHERE event_id = $1 AND seat_id = ANY($2) AND status IN ('active', 'confirmed')`, eventID, seatIDs)
+	if err != nil {
+		return nil, fmt.Errorf("booking/pg: taken seats: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("booking/pg: scan taken seat: %w", err)
+		}
+		out[id] = struct{}{}
+	}
+	return out, rows.Err()
+}
+
+// FindGroupByIdempotencyKey — группа по ключу идемпотентности.
+func (q *queries) FindGroupByIdempotencyKey(ctx context.Context, key string) (domain.HoldGroup, error) {
+	var g domain.HoldGroup
+	var idem *string
+	err := q.db.QueryRow(ctx, `/* booking.group_by_key */
+		SELECT id, event_id, user_id, sector_id, row_no, seat_from, seat_count, idempotency_key, expires_at, created_at
+		FROM hold_groups WHERE idempotency_key = $1`, key).
+		Scan(&g.ID, &g.EventID, &g.UserID, &g.SectorID, &g.RowNo, &g.SeatFrom, &g.Count, &idem, &g.ExpiresAt, &g.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.HoldGroup{}, api.ErrGroupNotFound
+	}
+	if err != nil {
+		return domain.HoldGroup{}, fmt.Errorf("booking/pg: group by key: %w", err)
+	}
+	if idem != nil {
+		g.IdempotencyKey = *idem
+	}
+	return g, nil
+}
+
+// HoldsByGroup — hold одной группы.
+func (q *queries) HoldsByGroup(ctx context.Context, groupID uuid.UUID) ([]domain.Hold, error) {
+	rows, err := q.db.Query(ctx, "/* booking.holds_by_group */ SELECT "+holdCols+" FROM holds WHERE group_id = $1", groupID)
+	if err != nil {
+		return nil, fmt.Errorf("booking/pg: holds by group: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.Hold
+	for rows.Next() {
+		h, err := scanHold(rows)
+		if err != nil {
+			return nil, fmt.Errorf("booking/pg: scan group hold: %w", err)
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
 }

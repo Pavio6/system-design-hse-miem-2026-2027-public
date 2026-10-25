@@ -55,6 +55,15 @@ type Seat struct {
 	SeatNo   int       `json:"num"`
 }
 
+// Sector — сектор площадки. Kind отличает сидячие ряды от танцпола.
+type Sector struct {
+	ID       uuid.UUID  `json:"id"`
+	VenueID  uuid.UUID  `json:"venue_id"`
+	Name     string     `json:"name"`
+	Kind     SectorKind `json:"kind"`
+	Capacity int        `json:"capacity"`
+}
+
 // SeatMap — сводка карты зала по секторам (с занятия 2 полная карта не отдаётся: см. SectorSeatMap).
 type SeatMap struct {
 	EventID uuid.UUID       `json:"event_id"`
@@ -126,4 +135,6 @@ type Service interface {
 	SectorSeatMap(ctx context.Context, eventID, sectorID uuid.UUID) (SectorSeatMapResult, error)
 	CreateEvent(ctx context.Context, in CreateEventInput) (Event, error)
 	OpenSales(ctx context.Context, id uuid.UUID) (Event, error)
+	GetSector(ctx context.Context, id uuid.UUID) (Sector, error)
+	SeatsBySector(ctx context.Context, sectorID uuid.UUID) ([]Seat, error)
 }

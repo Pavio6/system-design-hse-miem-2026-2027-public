@@ -4,6 +4,7 @@
 //	I2  нет двух tickets на одно (event, seat)
 //	I3  у каждого paid заказа есть ticket на каждую позицию
 //	I4  у пользователя ≤ 4 билетов на мероприятие
+//	I7  места одной группы — непрерывный отрезок одного ряда (V3)
 //	I5  (с занятия 3) каждому paid заказу соответствует ровно одна notification — включается флагом -i5
 //
 // Выход: таблица; код возврата 1 при нарушении.
@@ -44,6 +45,24 @@ var invariants = []invariant{
 		SELECT count(*) FROM (
 			SELECT o.user_id, o.event_id FROM tickets t JOIN orders o ON o.id = t.order_id
 			GROUP BY o.user_id, o.event_id HAVING count(*) > 4
+		) d`},
+	{"I7", "места одной группы образуют непрерывный отрезок одного ряда", `
+		SELECT count(*) FROM (
+			SELECT g.id
+			FROM hold_groups g
+			LEFT JOIN holds h ON h.group_id = g.id
+			LEFT JOIN seats s ON s.id = h.seat_id
+			GROUP BY g.id, g.user_id, g.sector_id, g.row_no, g.seat_from, g.seat_count
+			HAVING count(h.id) <> g.seat_count
+				OR count(h.id) <> count(s.id)
+				OR count(DISTINCT h.user_id) <> 1
+				OR bool_or(h.user_id IS DISTINCT FROM g.user_id)
+				OR count(DISTINCT s.row_no) <> 1
+				OR bool_or(s.row_no IS DISTINCT FROM g.row_no)
+				OR bool_or(s.sector_id IS DISTINCT FROM g.sector_id)
+				OR min(s.seat_no) IS DISTINCT FROM g.seat_from
+				OR max(s.seat_no) IS DISTINCT FROM (g.seat_from + g.seat_count - 1)
+				OR (max(s.seat_no) - min(s.seat_no) + 1) IS DISTINCT FROM count(DISTINCT s.seat_no)
 		) d`},
 }
 

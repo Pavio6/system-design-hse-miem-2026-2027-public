@@ -31,6 +31,11 @@ func (s Seat) ToAPI() api.Seat {
 	return api.Seat{ID: s.ID, SectorID: s.SectorID, VenueID: s.VenueID, RowNo: s.RowNo, SeatNo: s.SeatNo}
 }
 
+// ToAPI — DTO сектора.
+func (s Sector) ToAPI() api.Sector {
+	return api.Sector{ID: s.ID, VenueID: s.VenueID, Name: s.Name, Kind: s.Kind, Capacity: s.Capacity}
+}
+
 // SeatState — строка проекции: место сектора со статусом held/sold.
 type SeatState struct {
 	SeatID int64
