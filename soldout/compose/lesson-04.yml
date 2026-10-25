@@ -17,6 +17,8 @@ services:
       # письмо больше не в pay: OrderPaidEvent → outbox. true — CDC (строка удаляется в той же транзакции),
       # false — polling relay notifier'а (up-lite, make up-poll)
       OUTBOX_DELETE_AFTER_INSERT: ${OUTBOX_DELETE_AFTER_INSERT:-true}
+      # Буфер шины карты зала. На lesson-5 по умолчанию 10 000, шторм на 80 000 мест его переполняет (HW1, известное ограничение 1).
+      EVENTBUS_BUFFER: ${EVENTBUS_BUFFER:-40000}
 
   # Эмулятор почтового шлюза: медленно (900 мс ± 30 %) и иногда 502 (5 %).
   # Образ собирается из того же Dockerfile под своим тегом: параллельная сборка одного тега двумя сервисами падает.

@@ -97,6 +97,22 @@ type Hold struct {
 	Status    HoldStatus `json:"status"`
 	ExpiresAt time.Time  `json:"expires_at"`
 	CreatedAt time.Time  `json:"created_at"`
+	GroupID   *uuid.UUID `json:"group_id,omitempty"`
+}
+
+// HoldGroup — атомарное удержание N соседних мест одного ряда (V3).
+type HoldGroup struct {
+	ID        uuid.UUID   `json:"id"`
+	EventID   uuid.UUID   `json:"event_id"`
+	SectorID  uuid.UUID   `json:"sector_id"`
+	UserID    uuid.UUID   `json:"user_id"`
+	RowNo     int         `json:"row"`
+	SeatFrom  int         `json:"seat_from"`
+	Count     int         `json:"count"`
+	HoldIDs   []uuid.UUID `json:"hold_ids"`
+	SeatIDs   []int64     `json:"seat_ids"`
+	ExpiresAt time.Time   `json:"expires_at"`
+	CreatedAt time.Time   `json:"created_at"`
 }
 
 // Order — заказ.
@@ -120,6 +136,16 @@ type CreateHoldInput struct {
 	SeatID         int64
 	UserID         uuid.UUID
 	AdmissionToken string
+}
+
+// CreateAdjacentHoldsInput — POST /v1/holds/adjacent.
+type CreateAdjacentHoldsInput struct {
+	EventID        uuid.UUID
+	SectorID       uuid.UUID
+	UserID         uuid.UUID
+	Count          int
+	AdmissionToken string
+	IdempotencyKey string
 }
 
 // CreateOrderInput — POST /v1/orders.
@@ -154,6 +180,10 @@ var (
 	ErrIdempotencyConflict = errors.New("booking: Idempotency-Key уже использован с другими параметрами")
 	ErrValidation          = errors.New("booking: некорректные данные")
 	ErrAdmissionRequired   = errors.New("booking: нужен действующий токен допуска (X-Admission-Token)")
+	ErrNoAdjacentSeats     = errors.New("booking: в секторе нет непрерывного отрезка свободных мест")
+	ErrStandingSector      = errors.New("booking: соседние места есть только в сидячем секторе")
+	ErrSectorNotInEvent    = errors.New("booking: сектор не относится к площадке мероприятия")
+	ErrGroupNotFound       = errors.New("booking: группа hold не найдена")
 )
 
 // PaymentGateway — порт к модулю payment (реализует payment/app).
@@ -204,6 +234,7 @@ type Service interface {
 	SeatStateReader
 	SoldCounter
 	CreateHold(ctx context.Context, in CreateHoldInput) (Hold, error)
+	CreateAdjacentHolds(ctx context.Context, in CreateAdjacentHoldsInput) (HoldGroup, bool, error)
 	ReleaseHold(ctx context.Context, holdID uuid.UUID) error
 	GetHold(ctx context.Context, holdID uuid.UUID) (Hold, error)
 	CreateOrder(ctx context.Context, in CreateOrderInput) (Order, bool, error) // bool: true — заказ создан, false — повтор

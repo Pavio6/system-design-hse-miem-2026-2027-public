@@ -129,6 +129,42 @@ paths:
         "409": { description: Место занято (`seat_held`), продано (`seat_sold`) или продажи закрыты (`sales_closed`) }
         "422": { description: Лимит 4 билета (`hold_limit`), место не с этой площадки (`seat_not_in_event`), валидация }
 
+  /v1/holds/adjacent:
+    post:
+      tags: [booking]
+      summary: Удержать N соседних мест в одном ряду сидячего сектора
+      description: |
+        Все N мест или ни одного. Поиск с ряда 1, внутри ряда с меньшего номера.
+        Повтор с тем же Idempotency-Key и теми же параметрами возвращает ту же группу (200).
+      parameters:
+        - name: X-Admission-Token
+          in: header
+          required: true
+          schema: { type: string }
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event_id, sector_id, user_id, count]
+              properties:
+                event_id: { type: string, format: uuid }
+                sector_id: { type: string, format: uuid }
+                user_id: { type: string, format: uuid }
+                count: { type: integer, minimum: 1, maximum: 4 }
+      responses:
+        "201": { description: Группа создана, content: { application/json: { schema: { $ref: "#/components/schemas/HoldGroup" } } } }
+        "200": { description: Повтор Idempotency-Key, content: { application/json: { schema: { $ref: "#/components/schemas/HoldGroup" } } } }
+        "401": { description: Нет/недействителен токен допуска (`admission_required`) }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { description: Нет свободного отрезка (`no_adjacent`), продажи закрыты (`sales_closed`) или ключ использован с другими параметрами (`idempotency_conflict`) }
+        "422": { description: Лимит 4 билетов (`hold_limit`), танцпол (`standing_sector`), сектор не с площадки (`seat_not_in_event`), валидация }
+
   /v1/holds/{id}:
     get:
       tags: [booking]
@@ -341,6 +377,21 @@ components:
         seat_id: { type: integer, format: int64 }
         user_id: { type: string, format: uuid }
         status: { type: string, enum: [active, released, confirmed] }
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        group_id: { type: string, format: uuid, description: Пусто у одиночного hold }
+    HoldGroup:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        event_id: { type: string, format: uuid }
+        sector_id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        row: { type: integer }
+        seat_from: { type: integer }
+        count: { type: integer, minimum: 1, maximum: 4 }
+        hold_ids: { type: array, items: { type: string, format: uuid } }
+        seat_ids: { type: array, items: { type: integer, format: int64 } }
         expires_at: { type: string, format: date-time }
         created_at: { type: string, format: date-time }
     Order:
